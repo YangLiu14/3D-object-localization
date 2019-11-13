@@ -1,6 +1,10 @@
 # mask-rcnn-for-indoor-objects
 Train Mask-RCNN for indoor objects detection
 
+## Dependencies
+
+The code is tested on Ubuntu 18.04, PyTorch v1.1, CUDA 10.0 and cuDNN v7.4
+
 ## Dataset
 The model in this repository is from torchvision which contains pretrained ResNet50-Backbone and then fine-tuned on [ScanNet](http://kaldir.vc.in.tum.de/scannet_benchmark/) dataset. In order to obtain the data, please follow this [README](https://github.com/facebookresearch/votenet/blob/master/scannet/README.md).
 
