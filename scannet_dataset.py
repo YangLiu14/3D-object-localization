@@ -59,20 +59,22 @@ class ScannetDataset(Dataset):
 
             object_dict[bbox_dict['sem_label']] = bbox_dict['object_name']
 
+        if boxes == []:
+            Exception("Incomplete data: boxes list is empty!!")
 
         num_objs = len(obj_ids)
         obj_ids = np.array(obj_ids)
         masks = mask == obj_ids[:, None, None]
 
-        boxes_test = []
-        for i in range(num_objs):
-            pos = np.where(masks[i])
-            xmin = np.min(pos[1])
-            xmax = np.max(pos[1])
-            ymin = np.min(pos[0])
-            ymax = np.max(pos[0])
-            boxes_test.append([xmin, ymin, xmax, ymax])
-        boxes_test = torch.as_tensor(boxes_test, dtype=torch.float32)
+        # boxes_test = []
+        # for i in range(num_objs):
+        #     pos = np.where(masks[i])
+        #     xmin = np.min(pos[1])
+        #     xmax = np.max(pos[1])
+        #     ymin = np.min(pos[0])
+        #     ymax = np.max(pos[0])
+        #     boxes_test.append([xmin, ymin, xmax, ymax])
+        # boxes_test = torch.as_tensor(boxes_test, dtype=torch.float32)
 
         # convert everything into a torch.Tensor
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
@@ -80,7 +82,10 @@ class ScannetDataset(Dataset):
         masks = torch.as_tensor(masks, dtype=torch.uint8)
 
         image_id = torch.tensor([idx])
-        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        try:
+            area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        except:
+            print("asddsda")
         # suppose all instances are not crowd
         # instances with `iscrowd=True` will be ignored during evaluation.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)

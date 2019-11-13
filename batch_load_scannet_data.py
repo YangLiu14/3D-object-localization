@@ -42,8 +42,13 @@ def export_one_scan(scan_name, output_dir):
         fname = rgb_fnames[i].split('.')[0]
 
         # remove files that have no bounding box annotation
-        bbox = pickle.load( open(os.path.join(SCANNET_BOX_DIR, scan_name, fname+'.p'), "rb"))
-        if bbox == []:
+        bbox_dict_list = pickle.load( open(os.path.join(SCANNET_BOX_DIR, scan_name, fname+'.p'), "rb"))
+        for bbox_dict in bbox_dict_list:
+            # Check: valid bounding-boxes should not have `xmin==xmax or ymin==ymax`
+            bbox = bbox_dict['bbox']
+            if bbox[0] == bbox[2] or bbox[1] == bbox[3]:
+                bbox_dict_list.remove(bbox_dict)
+        if bbox_dict_list == []:
             rgb_remove_list.append(fname + '.jpg')
             mask_remove_list.append(fname + '.png')
             bbox_remove_list.append(fname + '.p')
@@ -173,7 +178,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(
         description=__doc__)
-    parser.add_argument('--data-split', default='train', help='valid options: `all`, `train`,`valid`, `test` ')
+    parser.add_argument('--data-split', default='valid', help='valid options: `all`, `train`,`valid`, `test` ')
     args = parser.parse_args()
     batch_export(args.data_split)
 
