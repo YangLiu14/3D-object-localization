@@ -32,3 +32,11 @@ So your `/data` folder will look like this:
       - 20.p
 
 Run batch_load_scannet_data.pyto organize the data so that it will be easy to use our dataloader to train the model.
+
+
+
+## Development
+
+- [ ] Plot function for loss history
+- [ ] Add other backbone network
+- [ ] Add other optimizer
