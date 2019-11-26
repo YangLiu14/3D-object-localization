@@ -1,17 +1,48 @@
 import os
+import random
 import sys
 import numpy as np
 import torch
 import pickle
+import cv2
+import matplotlib.pyplot as plt
 
 from PIL import Image
 from torch.utils.data import Dataset
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
-
+ROOT_DIR = BASE_DIR
 
 object_dict = dict()
+
+
+# helper functions for sanity check
+def random_colour_masks(image):
+    colours = [[0, 255, 0],[0, 0, 255],[255, 0, 0],[0, 255, 255],[255, 255, 0],[255, 0, 255],[80, 70, 180],[250, 80, 190],[245, 145, 50],[70, 150, 250],[50, 190, 190]]
+    r = np.zeros_like(image).astype(np.uint8)
+    g = np.zeros_like(image).astype(np.uint8)
+    b = np.zeros_like(image).astype(np.uint8)
+    r[image == 1], g[image == 1], b[image == 1] = colours[random.randrange(0, 10)]
+    coloured_mask = np.stack([r, g, b], axis=2)
+    return coloured_mask
+
+
+def instance_segmentation_api(img, target, threshold=0.5, rect_th=2, text_size=0.4, text_th=1):
+    masks, boxes, pred_cls = target['masks'].numpy(), target['boxes'].numpy(), target['labels'].numpy()
+    # img = cv2.imread(img_path)
+    # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    for i in range(len(masks)):
+        rgb_mask = random_colour_masks(masks[i])
+        img = cv2.addWeighted(img, 1, rgb_mask, 0.5, 0)
+        cv2.rectangle(img, (boxes[i][0], boxes[i][1]), (boxes[i][2], boxes[i][3]), color=(0, 255, 0), thickness=rect_th)
+        text_pos = (np.float32(boxes[i][0]), np.float32(boxes[i][1]-5))
+        cv2.putText(img, str(pred_cls[i]), text_pos, cv2.FONT_HERSHEY_SIMPLEX, text_size, (0, 255, 0), thickness=text_th)
+        plt.figure(figsize=(20, 30))
+        plt.imshow(img)
+        plt.xticks([])
+        plt.yticks([])
+        plt.show()
+
 
 class ScannetDataset(Dataset):
 
@@ -85,7 +116,7 @@ class ScannetDataset(Dataset):
         try:
             area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
         except:
-            print("asddsda")
+            print("area cannot be calculated.")
         # suppose all instances are not crowd
         # instances with `iscrowd=True` will be ignored during evaluation.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
@@ -106,6 +137,7 @@ class ScannetDataset(Dataset):
     def __len__(self):
         return len(self.imgs)
 
+
 if __name__ == "__main__":
     print("BASE_DIR")
     print(BASE_DIR)
@@ -115,21 +147,25 @@ if __name__ == "__main__":
     data_path = os.path.join(ROOT_DIR, 'data/maskrcnn_training')
     print(data_path)
 
-
-    # test_dataset = ScannetDataset(data_path)
-    # img, target = test_dataset.__getitem__(1)
-    # img.show()
-    # mask = target['masks'].numpy()
-    # print(type(img))
-    # print(target)
-
     # check how many classes are there
-    classes = set()
+    # check if masks, boxes and classes are correct
+    classes = list()
     test_dataset = ScannetDataset(data_path, data_split='train')
-    for i in range(433):
+    # for i in range(test_dataset.__len__()):
+    for i in range(1):
         img, target = test_dataset.__getitem__(i)
         labels = target['labels'].numpy()
+        masks = target['masks'].numpy()
+        # # store every mask as image
+        # i = 0
+        # for mask in masks:
+        #     im = Image.fromarray(mask*80)
+        #     im.save("mask_sanity_check/mask{}.jpeg".format(i))
+        #     i += 1
         for label in labels:
-            classes.add(label)
+            classes.append(label)
+
+        instance_segmentation_api(np.array(img), target)
+
     print(classes)
     print(object_dict)
