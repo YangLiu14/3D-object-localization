@@ -3,12 +3,12 @@ import datetime
 import numpy as np
 import shutil
 import pickle
-import cv2
+# import cv2
 from PIL import Image
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
+ROOT_DIR = BASE_DIR
 
 SCANNET_RGB_DIR = os.path.join(ROOT_DIR, 'data/frames_square/')
 SCANNET_MASK_DIR = os.path.join(ROOT_DIR, 'data/scannet_frame_labels/')
@@ -178,7 +178,7 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(
         description=__doc__)
-    parser.add_argument('--data-split', default='valid', help='valid options: `all`, `train`,`valid`, `test` ')
+    parser.add_argument('--data-split', default='train', help='valid options: `all`, `train`,`valid`, `test` ')
     args = parser.parse_args()
     batch_export(args.data_split)
 
