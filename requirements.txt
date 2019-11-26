@@ -1,0 +1,9 @@
+matplotlib
+numpy
+opencv
+pillow
+pycocotools
+torch
+torchvision
+
+
