@@ -6,7 +6,9 @@ from PIL import Image
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
+from PIL import Image
+import torchvision.transforms.functional as TF
 from engine import train_one_epoch, evaluate
 import utils
 import transforms as T
@@ -15,12 +17,26 @@ from scannet_dataset import ScannetDataset
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 
+def get_features_for_projection(model, imagePath):
+    image_mean = [0.485, 0.456, 0.406]
+    image_std = [0.229, 0.224, 0.225]
+    # these transform parameters are from source code of Mask R CNN
+    transform = GeneralizedRCNNTransform(min_size=800, max_size=1333, image_mean=image_mean, image_std=image_std)
+    image = Image.open(imagePath)
+    image_tensor = TF.to_tensor(image)
+    # let it be in list (can be multiple)
+    # TODO make it multiple
+    images = [image_tensor]
+    original_image_sizes = [img.shape[-2:] for img in images]
+    images, _ = transform(images)
+    features = model.backbone(images.tensors)
+    features_to_be_projected = features['pool']
+    return features_to_be_projected
 
 def get_model_instance_segmentation(num_classes):
     # load an instance segmentation model pre-trained pre-trained on COCO
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
     # model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
-
     # get number of input features for the classifier
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
@@ -113,7 +129,7 @@ def main(args):
                 os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
 
         # evaluate on the test dataset
-        evaluate(model, data_loader_test, device=device)
+#        evaluate(model, data_loader_test, device=device)
 
     print("That's it!")
 
