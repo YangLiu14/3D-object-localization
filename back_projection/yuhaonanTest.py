@@ -10,6 +10,7 @@ import cv2
 
 import util
 import data_util
+import pc_util
 import torchvision.transforms as transforms
 
 from back_projection.scannet.scannet_detection_dataset import ScannetDetectionDataset
@@ -134,6 +135,13 @@ def load_frames_multi(data_path, frame_indices, depth_images, color_images, pose
         depth_images[k] = torch.from_numpy(depth_image)
         poses[k] = pose
 
+def axis_align(mesh_vertices, axis_align_matrix):
+    pts = np.ones((mesh_vertices.shape[0], 4))
+    pts[:,0:3] = mesh_vertices[:,0:3]
+    pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
+    mesh_vertices[:,0:3] = pts[:,0:3]
+    return mesh_vertices
+
 
 def test_projection():
 
@@ -165,24 +173,24 @@ def test_projection():
     transforms = transforms.expand(1, 1, 4, 4).contiguous().view(-1, 4, 4).cuda()
     # compute projection mapping
     for d, c, t in zip(depth_images, camera_poses, transforms):
-        boudingmin, boudingmax,world_to_camera = projection.compute_projection(d, c, t)
+        boundingmin, boundingmax, world_to_camera = projection.compute_projection(d, c, t, axis_align_matrix)
+        boundingmin = boundingmin.cpu().numpy()
+        boundingmax = boundingmax.cpu().numpy()
 
-    TRAIN_DATASET = ScannetDetectionDataset('train', num_points=20000, use_color=False, use_height=True)
+    TRAIN_DATASET = ScannetDetectionDataset('train', num_points=200000, use_color=False, use_height=True)
     scan_names = TRAIN_DATASET.scan_names
     idx = scan_names.index("scene0001_00")
     pointcloud_dict = TRAIN_DATASET[idx]
     pointcloud = pointcloud_dict['point_clouds']
-    oneArray = np.ones((20000,1))
+    oneArray = np.ones((200000,1))
     pointcloud = np.append(pointcloud, oneArray, axis=1)
 
-
-
     filter1 = pointcloud[:, 0]
-    filter1 = (filter1 >= boudingmin[0].cpu().numpy()) & (filter1 <= boudingmax[0].cpu().numpy())
+    filter1 = (filter1 >= boundingmin[0]) & (filter1 <= boundingmax[0])
     filter2 = pointcloud[:, 1]
-    filter2 = (filter2 >= boudingmin[1].cpu().numpy()) & (filter2 <= boudingmax[1].cpu().numpy())
+    filter2 = (filter2 >= boundingmin[1]) & (filter2 <= boundingmax[1])
     filter3 = pointcloud[:, 2]
-    filter3 = (filter3 >= boudingmin[2].cpu().numpy()) & (filter3 <= boudingmax[2].cpu().numpy())
+    filter3 = (filter3 >= boundingmin[2]) & (filter3 <= boundingmax[2])
     filter_all = filter1 & filter2 & filter3
     filtered_pointCloud = pointcloud[filter_all]
 
@@ -192,8 +200,12 @@ def test_projection():
 
     pointcloud_xyz1 = filtered_pointCloud[:, [0, 1, 2, 4]]
     # transform to current frame
+    # TODO
     world_to_camera = world_to_camera.cpu().numpy()
-    p = np.matmul(pointcloud_xyz1, world_to_camera)
+    N = pointcloud_xyz1.shape[0]
+    pointcloud_xyz1 = pointcloud_xyz1.reshape(4, N)
+    p = np.matmul(world_to_camera, pointcloud_xyz1)
+    p = p.reshape((N,4))
 
 
     # project into image
@@ -217,23 +229,31 @@ def test_projection():
     cameratoworld = c.cpu().numpy()
     world = np.matmul(cameratoworld,pcamera)
     testimage = cv2.imread('/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/test_data/color20.jpg')
-    cv2.imshow('image', testimage)
-    cv2.waitKey(0)
+    # cv2.imshow('image', testimage)
+    # cv2.waitKey(0)
 
     world = world.reshape((1,4))
-    pts = np.matmul(world,axis_align_matrix )  # Nx4
-    world[:, 0:3] = pts[:, 0:3]
+    mesh_vertices = pointcloud
+    pts = np.ones((mesh_vertices.shape[0], 4))
+    pts[:, 0:3] = mesh_vertices[:, 0:3]
+    pts = np.dot(pts, axis_align_matrix.transpose())  # Nx4
+    mesh_vertices[:, 0:3] = pts[:, 0:3]
 
     pointstowrite = np.ones((320 * 240, 4))
-
+    colors = np.ones((320 * 240, 4))
     for i1 in range(320):
         for i2 in range(240):
-            pcamera = projection.depth_to_skeleton(i1, i2, ).unsqueeze(1).cpu().numpy()
+            print(i1,i2)
+            pcamera = projection.depth_to_skeleton(i1, i2,depth_map_to_compare[i2,i1]).unsqueeze(1).cpu().numpy()
             pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
             cameratoworld = c.cpu().numpy()
             world = np.matmul(cameratoworld, pcamera)
+            world = world.reshape((1, 4))
+            pointstowrite[i1*i2,:] = world[0,:]
+    pointstowrite = pointstowrite[:,0:3]
 
 
+    pc_util.write_ply_rgb(pointstowrite, colors, '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/scannet/testobject.obj')
     print("finished")
 def main():
     test_projection()

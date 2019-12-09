@@ -24,7 +24,7 @@ class ProjectionHelper():
         y = (p[1] * self.intrinsic[1][1]) / p[2] + self.intrinsic[1][2]
         return torch.Tensor([x, y, p[2]])
 
-    def compute_frustum_bounds(self, world_to_grid, camera_to_world):
+    def compute_frustum_bounds(self, world_to_grid, camera_to_world, axis_align_matrix):
         corner_points = camera_to_world.new(8, 4, 1).fill_(1)
         # depth min
         corner_points[0][:3] = self.depth_to_skeleton(0, 0, self.depth_min).unsqueeze(1)
@@ -42,6 +42,19 @@ class ProjectionHelper():
         p = torch.bmm(camera_to_world.repeat(8, 1, 1), corner_points)
         # pl = torch.round(torch.bmm(world_to_grid.repeat(8, 1, 1), torch.floor(p)))
         # pu = torch.round(torch.bmm(world_to_grid.repeat(8, 1, 1), torch.ceil(p)))
+
+        p = p.squeeze()
+        p = p.cpu().numpy()
+
+        pts = np.ones((p.shape[0], 4))
+        pts[:, 0:3] = p[:, 0:3]
+        pts = np.dot(pts, axis_align_matrix.transpose())  # Nx4
+        p[:, 0:3] = pts[:, 0:3]
+
+        p = torch.from_numpy(p)
+
+        p = torch.unsqueeze(p, 2)
+
         bbox_min0, _ = torch.min(p[:, :3, 0], 0)
         # bbox_min1, _ = torch.min(pu[:, :3, 0], 0)
         # bbox_min = np.minimum(bbox_min0, bbox_min1)
@@ -51,11 +64,11 @@ class ProjectionHelper():
         return bbox_min0, bbox_max0
 
         # TODO make runnable on cpu as well...
-    def compute_projection(self, depth, camera_to_world, world_to_grid):
+    def compute_projection(self, depth, camera_to_world, world_to_grid, axisAlignMatrix):
         # compute projection by voxels -> image
         world_to_camera = torch.inverse(camera_to_world)
         grid_to_world = torch.inverse(world_to_grid)
-        voxel_bounds_min, voxel_bounds_max = self.compute_frustum_bounds(world_to_grid, camera_to_world)
+        voxel_bounds_min, voxel_bounds_max = self.compute_frustum_bounds(world_to_grid, camera_to_world, axisAlignMatrix)
         return voxel_bounds_min, voxel_bounds_max,world_to_camera
         # voxel_bounds_min = np.maximum(voxel_bounds_min, 0).cuda()
         # voxel_bounds_max = np.minimum(voxel_bounds_max, self.volume_dims).float().cuda()

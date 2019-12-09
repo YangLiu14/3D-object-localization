@@ -68,7 +68,7 @@ os.environ['CUDA_VISIBLE_DEVICES']=str(opt.gpu)
 
 # create camera intrinsics
 input_image_dims = [320, 240]
-proj_image_dims = [16, 12]
+proj_image_dims = [17, 13]
 intrinsic = util.make_intrinsic(opt.fx, opt.fy, opt.mx, opt.my)
 intrinsic = util.adjust_intrinsic(intrinsic, [opt.intrinsic_image_width, opt.intrinsic_image_height], proj_image_dims)
 intrinsic = intrinsic.cuda()
