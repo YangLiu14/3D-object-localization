@@ -185,12 +185,6 @@ def scannet_projection():
     # project into image
     p[:, 0] = (p[:, 0] * projection.intrinsic[0][0].cpu().numpy()) / p[:, 2] + projection.intrinsic[0][2].cpu().numpy()
     p[:, 1] = (p[:, 1] * projection.intrinsic[1][1].cpu().numpy()) / p[:, 2] + projection.intrinsic[1][2].cpu().numpy()
-
-
-    p[:, 0] = p[:, 0] / p[:, 2]
-    p[:, 1] = p[:, 1] / p[:, 2]
-
-
     pi = np.round(p)
 
     # x = pi[:, 0]
@@ -200,11 +194,10 @@ def scannet_projection():
     # filterxy = x_filter & y_filter
 
 
-
     x = pi[:, 0]
-    x_filter = (x >= 0) & (x < 240)
+    x_filter = (x >= 0) & (x < 320)
     y = pi[:, 1]
-    y_filter = (y >= 0) & (y < 320)
+    y_filter = (y >= 0) & (y < 240)
     filterxy = x_filter & y_filter
 
     pi = pi[filterxy]
