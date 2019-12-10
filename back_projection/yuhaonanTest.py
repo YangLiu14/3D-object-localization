@@ -200,11 +200,14 @@ def test_projection():
 
     pointcloud_xyz1 = filtered_pointCloud[:, [0, 1, 2, 4]]
     # transform to current frame
-    # TODO
     world_to_camera = world_to_camera.cpu().numpy()
     N = pointcloud_xyz1.shape[0]
+    # TODO
+    # Not correct reshape, the order is totally wrong, can check by debugging, use transpose instead
     pointcloud_xyz1 = pointcloud_xyz1.reshape(4, N)
     p = np.matmul(world_to_camera, pointcloud_xyz1)
+    # TODO
+    # same here
     p = p.reshape((N,4))
 
 
@@ -255,6 +258,10 @@ def test_projection():
 
     pc_util.write_ply_rgb(pointstowrite, colors, '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/scannet/testobject.obj')
     print("finished")
+
+    # TODO
+    # load original ply data, and then project to 2d, to find the right features to be added into the point cloud.
+    # Then before training, use axis alignment to change the xyz coordinates of point cloud.
 def main():
     test_projection()
 
