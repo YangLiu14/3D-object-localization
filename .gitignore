@@ -2,3 +2,5 @@
 data/
 mask_sanity_check/
 trained_model/
+.ply
+
