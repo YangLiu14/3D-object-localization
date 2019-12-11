@@ -13,7 +13,7 @@ import data_util
 import pc_util
 import torchvision.transforms as transforms
 
-from back_projection.scannet.scannet_detection_dataset import ScannetDetectionDataset
+from tqdm import tqdm
 from model import Model2d3d
 from enet import create_enet_for_3d
 from projection import ProjectionHelper
@@ -160,15 +160,11 @@ def scannet_projection():
     filter_all = filter1 & filter2 & filter3
     valid_vertices = mesh_vertices[filter_all]
 
-    # TODO: TEST (delete afterwards)
-    valid_vertices = mesh_vertices
-    # TEST
-
     # transform to current frame
     world_to_camera = world_to_camera.cpu().numpy()
     N = valid_vertices.shape[0]
     valid_vertices_T = np.transpose(valid_vertices)
-    pcamera = np.dot(world_to_camera, valid_vertices_T)  # (4,4) x (4,N) => (4,N)
+    pcamera = np.matmul(world_to_camera, valid_vertices_T)  # (4,4) x (4,N) => (4,N)
 
     # Alternative way to compute p
     # intrinsic_np = intrinsic.cpu().numpy()
@@ -184,13 +180,6 @@ def scannet_projection():
     p[:, 1] = (p[:, 1] * projection.intrinsic[1][1].cpu().numpy()) / p[:, 2] + projection.intrinsic[1][2].cpu().numpy()
     pi = np.rint(p)
 
-    # x = pi[:, 0]
-    # x_filter = x == 105.0
-    # y = pi[:, 1]
-    # y_filter = y == 218.0
-    # filterxy = x_filter & y_filter
-
-
     x = pi[:, 0]
     x_filter = (x >= 0) & (x < 320)
     y = pi[:, 1]
@@ -200,111 +189,61 @@ def scannet_projection():
     pi = pi[filterxy]
     p = p[filterxy]
 
-    # output point cloud from depth_image
-    depth_map_to_compare = depth_images[0].cpu().numpy()
-
     reconstructed_depth_map = np.zeros((240, 320))
 
-    for i1 in range(320):
-        for i2 in range(240):
-            x = pi[:, 0]
-            x_filter = x == i1
-            y = pi[:, 1]
-            y_filter = y == i2
+    # for i1 in range(320):
+    #     for i2 in range(240):
+    #         x = pi[:, 0]
+    #         x_filter = x == i1
+    #         y = pi[:, 1]
+    #         y_filter = y == i2
+    #
+    #         correct_depth = depth_map_to_compare[i2][i1]
+    #
+    #         dpth = p[:, 2]
+    #         dpth_filter = (dpth <= correct_depth+0.5) & (dpth >= correct_depth-0.5)
+    #
+    #         filterxyd = x_filter & y_filter & dpth_filter
+    #         p_temp = p[filterxyd]
+    #         if p_temp.shape[0] == 0:
+    #             reconstructed_depth_map[i2][i1] = 0.0
+    #         else:
+    #             reconstructed_depth_map[i2][i1] = p_temp[0,2]
+    #         print(i1,i2)
+    #
 
-            correct_depth = depth_map_to_compare[i2][i1]
+    p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
+    # find correspondence in a 320 x 240 image, and fill in the depth value:
+    # reconstructed_depth_map = np.zeros((500, 500))
+    reconstructed_depth_map = np.zeros((240, 320))
+    # TODO: compare with depth map
+    for p in p_combined:
+        reconstructed_depth_map[int(p[1]), int(p[0])] = p[2]
 
-            dpth = p[:, 2]
-            dpth_filter = (dpth <= correct_depth+0.5) & (dpth >= correct_depth-0.5)
-
-            filterxyd = x_filter & y_filter & dpth_filter
-            p_temp = p[filterxyd]
-            if p_temp.shape[0] == 0:
-                reconstructed_depth_map[i2][i1] = 0.0
-            else:
-                reconstructed_depth_map[i2][i1] = p_temp[0,2]
-            print(i1,i2)
-
+    num_non_zeros = np.count_nonzero(reconstructed_depth_map)
     imageio.imwrite(BASE_DIR + '/reconstructed_depth_map.png', reconstructed_depth_map)
 
 
-    # pi_test = pi[:, 0:3]
-    # p_test = p[:, 2:3]
-    # normalized_depth = np.mean(p[:, 2:3])
-    #
-    # p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
-    #
-    # # find correspondence in a 320 x 240 image, and fill in the depth value:
-    # # reconstructed_depth_map = np.zeros((500, 500))
-    # reconstructed_depth_map = np.zeros((240, 320))
-    # for p in p_combined:
-    #     reconstructed_depth_map[int(p[1]), int(p[0])] = p[2]
-    #
-    # # TODO: this is problematic
-    # num_non_zeros = np.count_nonzero(reconstructed_depth_map)
-    #
-    # imageio.imwrite(BASE_DIR + '/reconstructed_depth_map.png', reconstructed_depth_map)
-
-
-
+    # output point cloud from depth_image
+    depth_map_to_compare = depth_images[0].cpu().numpy()
     pointstowrite = np.ones((320 * 240, 4))
     colors = np.ones((320 * 240, 4))
-    for i1 in range(320):
+
+    # TODO: convert this to matrix multiplication
+    print("back-projection, depth-map -> 3d points")
+    for i1 in tqdm(range(320)):
         for i2 in range(240):
-            print(i1, i2)
             pcamera = projection.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
             pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
             camera2world = camera_poses[0].cpu().numpy()
             world = np.matmul(camera2world, pcamera)
-            pctest = np.matmul(world_to_camera, world)
-            pctest = pctest.transpose()
-            pctest[:, 0] = (pctest[:, 0] * projection.intrinsic[0][0].cpu().numpy()) / pctest[:, 2] + projection.intrinsic[0][
-                2].cpu().numpy()
-            pctest[:, 1] = (pctest[:, 1] * projection.intrinsic[1][1].cpu().numpy()) / pctest[:, 2] + projection.intrinsic[1][
-                2].cpu().numpy()
-
-            dp = pctest[0, 2]
-            pctest = np.rint(pctest)
-            x = pctest[0, 0]
-            y = pctest[0, 1]
-
-            d_compare = depth_map_to_compare[i2, i1]
-
-            if x!=i1 or y!=i2 or abs(d_compare-dp)>0.05:
-                check_pcamera = np.matmul(world_to_camera, world)
-                '''
-                这里是完全回溯了，说明算法没有问题的。
-                你可以看到这里pcamera的depth如果是0,那么矩阵计算就会出数值计算问题，所有depth为0的算出来的坐标都很大，因为除以了一个极小的数字（算出的depth逼近0）。
-                3D 点云上的点，不是所有点都从这张图片取得的，所以反过来计算的话会有一些像素点拿不到。
-                但在这里我尝试的点，全都是从这张图片取得的，所以除了depth是0的，都可以拿到。
-                你可以试试其他图片，肯定也是只能拿到部分，因为我们的点云是由N张图片一起画出来的。
-                把断点设在print这里来查看所有不能回溯的点。
-                '''
-                print("what the fuck?!")
-
             world = world.reshape((1, 4))
             pointstowrite[i1 * i2, :] = world[0, :]
     pointstowrite = pointstowrite[:, 0:3]
 
+
+    pc_util.write_ply(pointstowrite, BASE_DIR + '/scannet/testobject.ply')
     # pc_util.write_ply_rgb(pointstowrite, colors, BASE_DIR + '/scannet/testobject.obj')
-
-
-
-    # ==========================
-    # Test
-    # ==========================
-    filter1 = pointstowrite[:, 0]
-    filter1 = (filter1 >= boundingmin[0]) & (filter1 <= boundingmax[0])
-    filter2 = pointstowrite[:, 1]
-    filter2 = (filter2 >= boundingmin[1]) & (filter2 <= boundingmax[1])
-    filter3 = pointstowrite[:, 2]
-    filter3 = (filter3 >= boundingmin[2]) & (filter3 <= boundingmax[2])
-    filter_all = filter1 & filter2 & filter3
-    valid_vertices = pointstowrite[filter_all]
-
-    print("valid")
-
-
 
 if __name__ == '__main__':
     scannet_projection()
