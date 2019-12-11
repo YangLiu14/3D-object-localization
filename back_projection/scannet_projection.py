@@ -13,7 +13,7 @@ import data_util
 import pc_util
 import torchvision.transforms as transforms
 
-from back_projection.scannet.scannet_detection_dataset import ScannetDetectionDataset
+from tqdm import tqdm
 from model import Model2d3d
 from enet import create_enet_for_3d
 from projection import ProjectionHelper
@@ -55,10 +55,8 @@ parser.add_argument('--grid_dimZ', type=int, default=62, help='3d grid dim z')
 parser.add_argument('--depth_min', type=float, default=0.4, help='min depth (in meters)')
 parser.add_argument('--depth_max', type=float, default=4.0, help='max depth (in meters)')
 # scannet intrinsic params
-# parser.add_argument('--intrinsic_image_width', type=int, default=640, help='2d image width')
-# parser.add_argument('--intrinsic_image_height', type=int, default=480, help='2d image height')
-parser.add_argument('--intrinsic_image_width', type=int, default=320, help='2d image width')
-parser.add_argument('--intrinsic_image_height', type=int, default=240, help='2d image height')
+parser.add_argument('--intrinsic_image_width', type=int, default=640, help='2d image width')
+parser.add_argument('--intrinsic_image_height', type=int, default=480, help='2d image height')
 parser.add_argument('--fx', type=float, default=577.870605, help='intrinsics')
 parser.add_argument('--fy', type=float, default=577.870605, help='intrinsics')
 parser.add_argument('--mx', type=float, default=319.5, help='intrinsics')
@@ -193,7 +191,6 @@ def scannet_projection():
     # y_filter = y == 218.0
     # filterxy = x_filter & y_filter
 
-
     x = pi[:, 0]
     x_filter = (x >= 0) & (x < 320)
     y = pi[:, 1]
@@ -226,9 +223,11 @@ def scannet_projection():
 
     pointstowrite = np.ones((320 * 240, 4))
     colors = np.ones((320 * 240, 4))
-    for i1 in range(320):
+
+    # TODO: convert this to matrix multiplication
+    print("back-projection, depth-map -> 3d points")
+    for i1 in tqdm(range(320)):
         for i2 in range(240):
-            print(i1, i2)
             pcamera = projection.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
             pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
             camera2world = camera_poses[0].cpu().numpy()
@@ -237,25 +236,9 @@ def scannet_projection():
             pointstowrite[i1 * i2, :] = world[0, :]
     pointstowrite = pointstowrite[:, 0:3]
 
+
+    pc_util.write_ply(pointstowrite, BASE_DIR + '/scannet/testobject.ply')
     # pc_util.write_ply_rgb(pointstowrite, colors, BASE_DIR + '/scannet/testobject.obj')
-
-
-
-    # ==========================
-    # Test
-    # ==========================
-    filter1 = pointstowrite[:, 0]
-    filter1 = (filter1 >= boundingmin[0]) & (filter1 <= boundingmax[0])
-    filter2 = pointstowrite[:, 1]
-    filter2 = (filter2 >= boundingmin[1]) & (filter2 <= boundingmax[1])
-    filter3 = pointstowrite[:, 2]
-    filter3 = (filter3 >= boundingmin[2]) & (filter3 <= boundingmax[2])
-    filter_all = filter1 & filter2 & filter3
-    valid_vertices = pointstowrite[filter_all]
-
-    print("valid")
-
-
 
 if __name__ == '__main__':
     scannet_projection()

@@ -46,7 +46,7 @@ class ProjectionHelper():
         p = p.squeeze()
         p = p.cpu().numpy()
 
-        if axis_align_matrix:
+        if axis_align_matrix is not None:
             pts = np.ones((p.shape[0], 4))
             pts[:, 0:3] = p[:, 0:3]
             pts = np.dot(pts, axis_align_matrix.transpose())  # Nx4
