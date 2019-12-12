@@ -1,9 +1,11 @@
-# mask-rcnn-for-indoor-objects
-Train Mask-RCNN for indoor objects detection
+# 3D Object Localization
+
 
 ## Dependencies
 
-The code is tested on Ubuntu 18.04, PyTorch v1.1, CUDA 10.0 and cuDNN v7.4
+The code is tested on Ubuntu 18.04.
+- PyTorch v1.1, CUDA 10.0 and cuDNN v7.4
+- tensorflow or tensorflow-gpu v1.14.0  (for the tensorboard)
 
 ## Dataset
 The model in this repository is from torchvision which contains pretrained ResNet50-Backbone and then fine-tuned on [ScanNet](http://kaldir.vc.in.tum.de/scannet_benchmark/) dataset. In order to obtain the data, please follow this [README](https://github.com/facebookresearch/votenet/blob/master/scannet/README.md).
@@ -34,9 +36,18 @@ So your `/data` folder will look like this:
 Run batch_load_scannet_data.pyto organize the data so that it will be easy to use our dataloader to train the model.
 
 
+### Tensorboard
+By default, the log for tensorboard is stored in `/train_log` under the root folder of this repository.
+Simply `cd` to this repository and run:
+```bash
+tensorboard --logdir=./train_log
+```
+
+#### Troubleshoot
+You might need to `conda install -c anaconda future` in your conda environment. 
 
 ## Development
 
-- [ ] Plot function for loss history
+- [x] Plot function for loss history
 - [ ] Add other backbone network
-- [ ] Add other optimizer
+- [ ] Add Adam optimizer
