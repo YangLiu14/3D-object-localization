@@ -1,6 +1,10 @@
+__pycache__/
 .idea/
 data/
 mask_sanity_check/
 trained_model/
-.ply
-
+*.ply
+*.obj
+*.png
+*.jpg
+train_log/
