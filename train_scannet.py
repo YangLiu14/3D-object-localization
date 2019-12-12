@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
+from torch.utils.tensorboard import SummaryWriter
 
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
@@ -13,6 +14,7 @@ from engine import train_one_epoch, evaluate
 import utils
 import transforms as T
 from scannet_dataset import ScannetDataset
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -70,7 +72,7 @@ def main(args):
     num_classes = 18
     dataset = ScannetDataset(args.data_path, get_transform(train=False), data_split='train')
     dataset_valid = ScannetDataset(args.data_path, get_transform(train=False), data_split='valid')
-    dataset_test = ScannetDataset(args.data_path, get_transform(train=False), data_split='test')
+    # dataset_test = ScannetDataset(args.data_path, get_transform(train=False), data_split='test')
 
     # # split the dataset in train and test set
     # indices = torch.randperm(len(dataset)).tolist()
@@ -79,7 +81,7 @@ def main(args):
 
     # define training and validation data loaders
     data_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=2, shuffle=True, num_workers=4,
+        dataset, batch_size=3, shuffle=True, num_workers=4,
         collate_fn=utils.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
@@ -112,9 +114,10 @@ def main(args):
         evaluate(model, data_loader_test, device=device)
         return
 
+    writer = SummaryWriter(log_dir=BASE_DIR + '/train_log')
     for epoch in range(args.epochs):
         # train for one epoch, printing every 10 iterations
-        train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=10)
+        train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=10, log_writer=writer)
         # update the learning rate
         lr_scheduler.step()
         # save model

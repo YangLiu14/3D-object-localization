@@ -1,4 +1,5 @@
 import math
+import os
 import sys
 import time
 import torch
@@ -9,8 +10,11 @@ from coco_utils import get_coco_api_from_dataset
 from coco_eval import CocoEvaluator
 import utils
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
 
-def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
+
+def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq, log_writer):
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -49,7 +53,6 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
             print(targets[0]["image_id"])
             print(">>>>>>>>>>>>>>>>>> area")
             print(targets[0]["area"])
-
             print("Loss is {}, stopping training".format(loss_value))
             print(loss_dict_reduced)
             sys.exit(1)
@@ -64,6 +67,17 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
+        # ================================================================== #
+        #                        Tensorboard Logging                         #
+        # ================================================================== #
+        if count % print_freq == 0:
+            n_iter = count + epoch * len(data_loader) / len(images)
+            log_writer.add_scalar('Loss/total', loss_value, n_iter)
+            log_writer.add_scalar('Loss/class', loss_dict['loss_classifier'], n_iter)
+            log_writer.add_scalar('Loss/bbox', loss_dict['loss_box_reg'], n_iter)
+            log_writer.add_scalar('Loss/mask', loss_dict['loss_mask'], n_iter)
+            log_writer.add_scalar('Loss/objectness', loss_dict['loss_objectness'], n_iter)
+            log_writer.add_scalar('Loss/rpn_box', loss_dict['loss_rpn_box_reg'], n_iter)
 
 def _get_iou_types(model):
     model_without_ddp = model
