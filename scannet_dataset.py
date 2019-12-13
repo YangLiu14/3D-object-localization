@@ -61,6 +61,7 @@ class ScannetDataset(Dataset):
         img_path = os.path.join(self.root, self.data_split, "raw_rgb", self.imgs[idx])
         mask_path = os.path.join(self.root, self.data_split, "label_mask", self.masks[idx])
         img = Image.open(img_path).convert("RGB")
+        img = np.asarray(img).astype('float32') / 255.0  # normalize every pixel to 0~1
         mask = Image.open(mask_path)
         mask = np.array(mask)
 
@@ -116,7 +117,7 @@ class ScannetDataset(Dataset):
         try:
             area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
         except:
-            print("area cannot be calculated.")
+            Exception("area cannot be calculated.")
         # suppose all instances are not crowd
         # instances with `iscrowd=True` will be ignored during evaluation.
         iscrowd = torch.zeros((num_objs,), dtype=torch.int64)
@@ -139,13 +140,11 @@ class ScannetDataset(Dataset):
 
 
 if __name__ == "__main__":
-    print("BASE_DIR")
-    print(BASE_DIR)
-    print("ROOT_DIR")
-    print(ROOT_DIR)
-    print("data_path")
+    print("BASE_DIR: {}".format(BASE_DIR))
+    print("ROOT_DIRL {}".format(ROOT_DIR))
+
     data_path = os.path.join(ROOT_DIR, 'data/maskrcnn_training')
-    print(data_path)
+    print("data_path: {}".format(data_path))
 
     # check how many classes are there
     # check if masks, boxes and classes are correct
@@ -165,7 +164,9 @@ if __name__ == "__main__":
         for label in labels:
             classes.append(label)
 
-        instance_segmentation_api(np.array(img), target)
+        img = img * 255
+        img = img.astype('uint8')
+        instance_segmentation_api(img, target)
 
     print(classes)
     print(object_dict)

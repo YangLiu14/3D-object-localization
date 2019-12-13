@@ -70,7 +70,7 @@ def main(args):
 
     # our dataset has two classes only - background and person
     num_classes = 18
-    dataset = ScannetDataset(args.data_path, get_transform(train=False), data_split='train')
+    dataset = ScannetDataset(args.data_path, get_transform(train=True), data_split='train')
     dataset_valid = ScannetDataset(args.data_path, get_transform(train=False), data_split='valid')
     # dataset_test = ScannetDataset(args.data_path, get_transform(train=False), data_split='test')
 
