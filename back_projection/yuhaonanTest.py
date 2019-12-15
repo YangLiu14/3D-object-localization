@@ -1,4 +1,3 @@
-
 import argparse
 import os, sys, inspect, time
 import random
@@ -7,20 +6,30 @@ import torchnet as tnt
 import numpy as np
 import itertools
 import cv2
-
+import imageio
+import torchvision
+from torchvision.models.detection.transform import GeneralizedRCNNTransform
+from PIL import Image
+import torchvision.transforms.functional as TF
 import util
 import data_util
 import pc_util
 import torchvision.transforms as transforms
 
-from back_projection.scannet.scannet_detection_dataset import ScannetDetectionDataset
+from tqdm import tqdm
 from model import Model2d3d
 from enet import create_enet_for_3d
 from projection import ProjectionHelper
+from data_util import load_depth_label_pose
+from scannet_utils import read_mesh_vertices
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# ROOT_DIR = os.path.dirname(BASE_DIR)
-ROOT_DIR = BASE_DIR
+ROOT_DIR = os.path.dirname(BASE_DIR)
+
+# train on the GPU or on the CPU, if a GPU is not available
+if torch.cuda.is_available():
+    print("Using GPU to train")
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 ENET_TYPES = {'scannet': (41, [0.496342, 0.466664, 0.440796], [0.277856, 0.28623, 0.291129])}  #classes, color mean/std
 
@@ -33,7 +42,7 @@ parser.add_argument('--output', default='./logs', help='folder to output model c
 parser.add_argument('--data_path_2d', required=False, help='path to 2d train data')
 parser.add_argument('--class_weight_file', default='', help='path to histogram over classes')
 # train params
-parser.add_argument('--num_classes', default=42, help='#classes')
+parser.add_argument('--num_classes', default=18, help='#classes')
 parser.add_argument('--gpu', type=int, default=0, help='which gpu to use')
 parser.add_argument('--batch_size', type=int, default=8, help='input batch size')
 parser.add_argument('--max_epoch', type=int, default=20, help='number of epochs to train for')
@@ -64,99 +73,77 @@ parser.add_argument('--my', type=float, default=239.5, help='intrinsics')
 parser.set_defaults(use_proxy_loss=False)
 opt = parser.parse_args()
 assert opt.model2d_type in ENET_TYPES
-print(opt)
 
 # specify gpu
-os.environ['CUDA_VISIBLE_DEVICES']=str(opt.gpu)
+os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.gpu)
+
+def read_lines_from_file(filename):
+    assert os.path.isfile(filename)
+    lines = open(filename).read().splitlines()
+    return lines
 
 # create camera intrinsics
 input_image_dims = [320, 240]
-proj_image_dims = [320, 240]
-intrinsic = util.make_intrinsic(opt.fx, opt.fy, opt.mx, opt.my)
-intrinsic = util.adjust_intrinsic(intrinsic, [opt.intrinsic_image_width, opt.intrinsic_image_height], proj_image_dims)
-intrinsic = intrinsic.cuda()
-grid_dims = [opt.grid_dimX, opt.grid_dimY, opt.grid_dimZ]
-column_height = opt.grid_dimZ
-batch_size = opt.batch_size
-num_images = opt.num_nearest_images
-grid_centerX = opt.grid_dimX // 2
-grid_centerY = opt.grid_dimY // 2
+proj_image_dims = [17, 13]
+# Read intrinsics from txt file
+# TODO: read scene_id on the during the trainning
+scene_path = "../data/scenes/"
+rawdata_path = "../data/rawdata/"
+num_classes = opt.num_classes
 color_mean = ENET_TYPES[opt.model2d_type][1]
 color_std = ENET_TYPES[opt.model2d_type][2]
 
-# create model
-num_classes = opt.num_classes
-# model2d_fixed, model2d_trainable, model2d_classifier = create_enet_for_3d(ENET_TYPES[opt.model2d_type], opt.model2d_path, num_classes)
-# model = Model2d3d(num_classes, num_images, intrinsic, proj_image_dims, grid_dims, opt.depth_min, opt.depth_max, opt.voxel_size)
-projection = ProjectionHelper(intrinsic, opt.depth_min, opt.depth_max, proj_image_dims, grid_dims, opt.voxel_size)
-# create loss
-criterion_weights = torch.ones(num_classes) 
-if opt.class_weight_file:
-    criterion_weights = util.read_class_weights_from_file(opt.class_weight_file, num_classes, True)
-for c in range(num_classes):
-    if criterion_weights[c] > 0:
-        criterion_weights[c] = 1 / np.log(1.2 + criterion_weights[c])
-print(criterion_weights.numpy())
-#raw_input('')
-criterion = torch.nn.CrossEntropyLoss(criterion_weights).cuda()
-criterion2d = torch.nn.CrossEntropyLoss(criterion_weights).cuda()
 
-_SPLITTER = ','
-confusion = tnt.meter.ConfusionMeter(num_classes)
-confusion2d = tnt.meter.ConfusionMeter(num_classes)
-confusion_val = tnt.meter.ConfusionMeter(num_classes)
-confusion2d_val = tnt.meter.ConfusionMeter(num_classes)
+def get_features_for_projection(model, imagePath, device):
+    image_mean = [0.485, 0.456, 0.406]
+    image_std = [0.229, 0.224, 0.225]
+    # these transform parameters are from source code of Mask R CNN
+    transform = GeneralizedRCNNTransform(min_size=800, max_size=1333, image_mean=image_mean, image_std=image_std)
+    image = Image.open(imagePath)
+    image_tensor = TF.to_tensor(image)
+    # let it be in list (can be multiple)
+    # TODO make it multiple
+    images = [image_tensor]
+    original_image_sizes = [img.shape[-2:] for img in images]
+    images, _ = transform(images)
+    features = model.backbone(images.tensors.to(device))
+    features_to_be_projected = features['pool']
+    return features_to_be_projected
 
+def get_model_instance_segmentation(num_classes):
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
+    return model
 
-from data_util import load_depth_label_pose
-
-
-def load_frames_multi(data_path, frame_indices, depth_images, color_images, poses, color_mean, color_std):
-    # construct files
-    # num_images = frame_indices.shape[1] - 2
-    num_images = 1
-    # scan_names = ['scene' + str(scene_id).zfill(4) + '_' + str(scan_id).zfill(2) for scene_id, scan_id in frame_indices[:,:2].numpy()]
-    # scan_names = np.repeat(scan_names, num_images)
-    # frame_ids = frame_indices[:, 2:].contiguous().view(-1).numpy()
-
-    depth_files = [os.path.join(data_path, 'depth20.png')]
-    color_files = [os.path.join(data_path, 'color20.jpg')]
-    pose_files = [os.path.join(data_path,  'pose20.txt')]
-
-    # batch_size = frame_indices.size(0) * num_images
-    batch_size = 1
-    depth_image_dims = [depth_images.shape[2], depth_images.shape[1]]
-    color_image_dims = [color_images.shape[3], color_images.shape[2]]
+def load_frames_multi(data_path, image_name, depth_image, color_image, camera_pose, color_mean, color_std):
+    depth_file = os.path.join(data_path, 'depth', image_name+".png")
+    color_file = os.path.join(data_path, 'color', image_name+".jpg")
+    pose_file = os.path.join(data_path,  'pose', image_name+".txt")
+    depth_image_dims = [depth_image.shape[2], depth_image.shape[1]]
+    color_image_dims = [color_image.shape[3], color_image.shape[2]]
     normalize = transforms.Normalize(mean=color_mean, std=color_std)
     # load data
-    for k in range(batch_size):
-        depth_image, color_image, pose = load_depth_label_pose(depth_files[k], color_files[k], pose_files[k], depth_image_dims, color_image_dims, normalize)
-        color_images[k] = color_image
-        depth_images[k] = torch.from_numpy(depth_image)
-        poses[k] = pose
+    depth_img, color_img, pose = load_depth_label_pose(depth_file, color_file, pose_file, depth_image_dims, color_image_dims, normalize)
+    color_image = color_img
+    depth_image = torch.from_numpy(depth_img)
+    camera_pose = pose
+    return color_image,depth_image,camera_pose
+
 
 def axis_align(mesh_vertices, axis_align_matrix):
     pts = np.ones((mesh_vertices.shape[0], 4))
-    pts[:,0:3] = mesh_vertices[:,0:3]
+    pts[:, 0:3] = mesh_vertices[:, 0:3]
     pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
-    mesh_vertices[:,0:3] = pts[:,0:3]
+    mesh_vertices[:, 0:3] = pts[:, 0:3]
     return mesh_vertices
 
+def project_one_image(data_path, image_name, mesh_vertices):
+    depth_image = torch.cuda.FloatTensor(1, proj_image_dims[1], proj_image_dims[0])
+    color_image = torch.cuda.FloatTensor(1, 3, input_image_dims[1], input_image_dims[0])
+    camera_pose = torch.cuda.FloatTensor(1, 4, 4)
+    color_image,depth_image,camera_pose = load_frames_multi(data_path, image_name, depth_image, color_image, camera_pose, color_mean, color_std)
 
-def test_projection():
-
-    mask = torch.cuda.LongTensor(1 * column_height)
-    depth_images = torch.cuda.FloatTensor(1, proj_image_dims[1], proj_image_dims[0])
-    color_images = torch.cuda.FloatTensor(1, 3, input_image_dims[1], input_image_dims[0])
-    camera_poses = torch.cuda.FloatTensor(1, 4, 4)
-    label_images = torch.cuda.LongTensor(1, proj_image_dims[1], proj_image_dims[0])
-
-    # load_images
-    data_path = os.path.join(ROOT_DIR, 'test_data')
-    load_frames_multi(data_path, np.array([20]), depth_images, color_images, camera_poses, color_mean, color_std)
-
-    # LOAD alignments
-    lines = open('/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/scannet/scans/scene0001_00/scene0001_00.txt').readlines()
+    # Load alignments
+    lines = open(ROOT_DIR + '/data/scenes/'+scene_id+'/'+scene_id+ '.txt').readlines()
     for line in lines:
         if 'axisAlignment' in line:
             axis_align_matrix = [float(x) \
@@ -164,109 +151,129 @@ def test_projection():
             break
     axis_align_matrix = np.array(axis_align_matrix).reshape((4, 4))
 
-
-    world_to_grids = np.array(np.loadtxt(ROOT_DIR + '/test_data/world2grid20.txt')).reshape(1, 4, 4)
-    world_to_grids = torch.from_numpy(world_to_grids)
-    world_to_grids = world_to_grids.type(torch.float32)
-    # transforms = world_to_grids[v].unsqueeze(1)
-    transforms = world_to_grids.unsqueeze(1)
-    transforms = transforms.expand(1, 1, 4, 4).contiguous().view(-1, 4, 4).cuda()
-    # compute projection mapping
-    for d, c, t in zip(depth_images, camera_poses, transforms):
-        boundingmin, boundingmax, world_to_camera = projection.compute_projection(d, c, t, axis_align_matrix)
-        boundingmin = boundingmin.cpu().numpy()
-        boundingmax = boundingmax.cpu().numpy()
-
-    TRAIN_DATASET = ScannetDetectionDataset('train', num_points=200000, use_color=False, use_height=True)
-    scan_names = TRAIN_DATASET.scan_names
-    idx = scan_names.index("scene0001_00")
-    pointcloud_dict = TRAIN_DATASET[idx]
-    pointcloud = pointcloud_dict['point_clouds']
-    oneArray = np.ones((200000,1))
-    pointcloud = np.append(pointcloud, oneArray, axis=1)
-
-    filter1 = pointcloud[:, 0]
+    boundingmin, boundingmax, world_to_camera = projection.compute_projection(depth_image, camera_pose)
+    boundingmin = boundingmin.cpu().numpy()
+    boundingmax = boundingmax.cpu().numpy()
+    # filter out the vertices that are not in the frustum (here treated as box-shape)
+    filter1 = mesh_vertices[:, 0]
     filter1 = (filter1 >= boundingmin[0]) & (filter1 <= boundingmax[0])
-    filter2 = pointcloud[:, 1]
+    filter2 = mesh_vertices[:, 1]
     filter2 = (filter2 >= boundingmin[1]) & (filter2 <= boundingmax[1])
-    filter3 = pointcloud[:, 2]
+    filter3 = mesh_vertices[:, 2]
     filter3 = (filter3 >= boundingmin[2]) & (filter3 <= boundingmax[2])
-    filter_all = filter1 & filter2 & filter3
-    filtered_pointCloud = pointcloud[filter_all]
-
-
-
-
-
-    pointcloud_xyz1 = filtered_pointCloud[:, [0, 1, 2, 4]]
+    # only get the points that are not added features
+    filter4 = mesh_vertices[:, 4]
+    filter4 = filter4 == 0.0
+    filter_all = filter1 & filter2 & filter3 & filter4
+    valid_vertices = mesh_vertices[filter_all]
+    filter_unvalid = np.logical_not(filter_all)
+    unvalid_vertices = mesh_vertices[filter_unvalid]
     # transform to current frame
     world_to_camera = world_to_camera.cpu().numpy()
-    N = pointcloud_xyz1.shape[0]
-    # TODO
-    # Not correct reshape, the order is totally wrong, can check by debugging, use transpose instead
-    pointcloud_xyz1 = pointcloud_xyz1.reshape(4, N)
-    p = np.matmul(world_to_camera, pointcloud_xyz1)
-    # TODO
-    # same here
-    p = p.reshape((N,4))
+    first_four_columns_of_points = valid_vertices[:,0:4]
+    N = first_four_columns_of_points.shape[0]
+    first_four_columns_of_points_T = np.transpose(first_four_columns_of_points)
+    pcamera = np.matmul(world_to_camera, first_four_columns_of_points_T)  # (4,4) x (4,N) => (4,N)
 
+    # train on the GPU or on the CPU, if a GPU is not available
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+    # get the model using our helper function
+    model = get_model_instance_segmentation(num_classes)
+    # move model to the right device
+    model.to(device)
+
+    # construct an optimizer
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=0.001,
+                                 momentum=0.9, weight_decay=0.0005)
+    # and a learning rate scheduler
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
+    features_to_add = get_features_for_projection(model, os.path.join(data_path, 'color', image_name+".jpg"), device)
+    p = np.transpose(pcamera)  # shape: (N,4)
 
     # project into image
-    p[:,0] = (p[:,0] * projection.intrinsic[0][0].cpu().numpy()) / p[:, 2] + projection.intrinsic[0][2].cpu().numpy()
+    p[:, 0] = (p[:, 0] * projection.intrinsic[0][0].cpu().numpy()) / p[:, 2] + projection.intrinsic[0][2].cpu().numpy()
     p[:, 1] = (p[:, 1] * projection.intrinsic[1][1].cpu().numpy()) / p[:, 2] + projection.intrinsic[1][2].cpu().numpy()
-    pi = np.round(p)
+    pi = np.rint(p)
 
-    x = pi[:,0]
-    x_filter = x==105.0
-    y = pi[:,1]
-    y_filter = y==218.0
-    filterxy = x_filter&y_filter
+    depth_map_to_compare = depth_image.cpu().numpy()
 
-    pi = pi[filterxy]
-    p = p[filterxy]
+    p = np.concatenate((p[:], np.zeros(((p.shape[0], 256)))), axis=1)
 
-    depth_map_to_compare = d.cpu().numpy()
+    for i1 in tqdm(range(17)):
+        for i2 in range(13):
+            x = pi[:, 0]
+            x_filter = x == i1
+            y = pi[:, 1]
+            y_filter = y == i2
+            correct_depth = depth_map_to_compare[i2][i1]
+            depth = p[:, 2]
+            depth_filter = (depth <= correct_depth+0.05) & (depth >= correct_depth-0.05)
 
-    pcamera = projection.depth_to_skeleton(12, 200, 3.904).unsqueeze(1).cpu().numpy()
-    pcamera = np.append(pcamera, np.ones((1,1)),axis=0)
-    cameratoworld = c.cpu().numpy()
-    world = np.matmul(cameratoworld,pcamera)
-    testimage = cv2.imread('/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/test_data/color20.jpg')
-    # cv2.imshow('image', testimage)
-    # cv2.waitKey(0)
+            filterxyd = x_filter & y_filter & depth_filter
+            p_temp = p[filterxyd]
+            if p_temp.shape[0] != 0:
+                features = features_to_add[0,:,i2,i1].detach().cpu().numpy()
+                N_points_to_project = p_temp.shape[0]
+                tiled_features = np.tile(features, (N_points_to_project, 1))
+                featured_point = np.concatenate((p[filterxyd,0:4], tiled_features), axis=1)
+                p[filterxyd] = featured_point
 
-    world = world.reshape((1,4))
-    mesh_vertices = pointcloud
-    pts = np.ones((mesh_vertices.shape[0], 4))
-    pts[:, 0:3] = mesh_vertices[:, 0:3]
-    pts = np.dot(pts, axis_align_matrix.transpose())  # Nx4
-    mesh_vertices[:, 0:3] = pts[:, 0:3]
+    return p, unvalid_vertices
+#TODO RANDOM IMAGES LOADING
+#TODO RGB including.
 
-    pointstowrite = np.ones((320 * 240, 4))
-    colors = np.ones((320 * 240, 4))
-    for i1 in range(320):
-        for i2 in range(240):
-            print(i1,i2)
-            pcamera = projection.depth_to_skeleton(i1, i2,depth_map_to_compare[i2,i1]).unsqueeze(1).cpu().numpy()
-            pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
-            cameratoworld = c.cpu().numpy()
-            world = np.matmul(cameratoworld, pcamera)
-            world = world.reshape((1, 4))
-            pointstowrite[i1*i2,:] = world[0,:]
-    pointstowrite = pointstowrite[:,0:3]
+# ROOT_DIR:indoor-objects
+def scannet_projection(intrinsic, projection, scene_id):
+    # load vertices
+    mesh_vertices = read_mesh_vertices(filename=ROOT_DIR + '/data/scenes/' + scene_id + '/' + scene_id + '_vh_clean_2.ply')
+    # add addition ones to the end or each position in mesh_vertices
+    mesh_vertices = np.append(mesh_vertices, np.ones((mesh_vertices.shape[0], 1)), axis=1)
+    # add zeros dimension
+    mesh_vertices = np.concatenate((mesh_vertices[:], np.zeros(((mesh_vertices.shape[0], 256)))), axis=1)
+    # load_images
+    for image_name in range(0, 500, 20):
+        data_path = os.path.join(ROOT_DIR, 'data', 'rawdata', scene_id)
+        projected_points, unvalid_vertices = project_one_image(data_path, str(image_name), mesh_vertices)
+        mesh_vertices = np.concatenate((projected_points,unvalid_vertices),axis=0)
+
+    check = mesh_vertices[:,4]
+    check = check!=0.0
+    check = mesh_vertices[check]
+
+    mesh_vertices = np.delete(mesh_vertices, 3, 1)
+
+    return mesh_vertices
 
 
-    pc_util.write_ply_rgb(pointstowrite, colors, '/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/back_projection/scannet/testobject.obj')
-    print("finished")
 
-    # TODO
-    # load original ply data, and then project to 2d, to find the right features to be added into the point cloud.
-    # Then before training, use axis alignment to change the xyz coordinates of point cloud.
-def main():
-    test_projection()
+
+
+
+
+
+
+
+
 
 
 if __name__ == '__main__':
-    main()
+    for scene_id in os.listdir(scene_path):
+        intrinsic_str = read_lines_from_file(rawdata_path + scene_id + '/intrinsic_depth.txt')
+        fx = float(intrinsic_str[0].split()[0])
+        fy = float(intrinsic_str[1].split()[1])
+        mx = float(intrinsic_str[0].split()[2])
+        my = float(intrinsic_str[1].split()[2])
+        intrinsic = util.make_intrinsic(fx, fy, mx, my)
+        intrinsic = util.adjust_intrinsic(intrinsic, [opt.intrinsic_image_width, opt.intrinsic_image_height],
+                                          proj_image_dims)
+        intrinsic = intrinsic.cuda()
+        projection = ProjectionHelper(intrinsic, opt.depth_min, opt.depth_max, proj_image_dims)
+        vertices = scannet_projection(intrinsic, projection, scene_id)
+        save_path = ROOT_DIR +'/data/output/' +scene_id+'/'
 
-
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        np.save(save_path+scene_id + ".npy", vertices)
+    print("finished")
