@@ -142,15 +142,6 @@ def project_one_image(data_path, image_name, mesh_vertices):
     camera_pose = torch.cuda.FloatTensor(1, 4, 4)
     color_image,depth_image,camera_pose = load_frames_multi(data_path, image_name, depth_image, color_image, camera_pose, color_mean, color_std)
 
-    # Load alignments
-    lines = open(ROOT_DIR + '/data/scenes/'+scene_id+'/'+scene_id+ '.txt').readlines()
-    for line in lines:
-        if 'axisAlignment' in line:
-            axis_align_matrix = [float(x) \
-                                 for x in line.rstrip().strip('axisAlignment = ').split(' ')]
-            break
-    axis_align_matrix = np.array(axis_align_matrix).reshape((4, 4))
-
     boundingmin, boundingmax, world_to_camera = projection.compute_projection(depth_image, camera_pose)
     boundingmin = boundingmin.cpu().numpy()
     boundingmax = boundingmax.cpu().numpy()
@@ -161,13 +152,11 @@ def project_one_image(data_path, image_name, mesh_vertices):
     filter2 = (filter2 >= boundingmin[1]) & (filter2 <= boundingmax[1])
     filter3 = mesh_vertices[:, 2]
     filter3 = (filter3 >= boundingmin[2]) & (filter3 <= boundingmax[2])
-    # only get the points that are not added features
-    filter4 = mesh_vertices[:, 4]
-    filter4 = filter4 == 0.0
-    filter_all = filter1 & filter2 & filter3 & filter4
+    filter_all = filter1 & filter2 & filter3
+    # valid_vertices = mesh_vertices
     valid_vertices = mesh_vertices[filter_all]
-    filter_unvalid = np.logical_not(filter_all)
-    unvalid_vertices = mesh_vertices[filter_unvalid]
+    valid_indices = np.where(filter_all == True)[0]
+    # valid_indices = np.arange(mesh_vertices.shape[0])
     # transform to current frame
     world_to_camera = world_to_camera.cpu().numpy()
     first_four_columns_of_points = valid_vertices[:,0:4]
@@ -184,7 +173,7 @@ def project_one_image(data_path, image_name, mesh_vertices):
     model.to(device)
 
     # construct an optimizer
-    params = [p for p in model.parameters() if p.requires_grad]
+    params = [param for param in model.parameters() if param.requires_grad]
     optimizer = torch.optim.SGD(params, lr=0.001,
                                  momentum=0.9, weight_decay=0.0005)
     # and a learning rate scheduler
@@ -212,17 +201,18 @@ def project_one_image(data_path, image_name, mesh_vertices):
             depth_filter = (depth <= correct_depth+0.05) & (depth >= correct_depth-0.05)
 
             filterxyd = x_filter & y_filter & depth_filter
+
+            projected_indices = valid_indices[filterxyd]
+
             p_temp = p[filterxyd]
             if p_temp.shape[0] != 0:
                 features = features_to_add[0,:,i2,i1].detach().cpu().numpy()
                 N_points_to_project = p_temp.shape[0]
                 tiled_features = np.tile(features, (N_points_to_project, 1))
                 featured_point = np.concatenate((p[filterxyd,0:4], tiled_features), axis=1)
-                p[filterxyd] = featured_point
+                mesh_vertices[projected_indices] = featured_point
 
-    return p, unvalid_vertices
-#TODO RANDOM IMAGES LOADING
-#TODO RGB including.
+    return mesh_vertices
 
 # ROOT_DIR:indoor-objects
 def scannet_projection(intrinsic, projection, scene_id):
@@ -233,17 +223,32 @@ def scannet_projection(intrinsic, projection, scene_id):
     # add zeros dimension
     mesh_vertices = np.concatenate((mesh_vertices[:], np.zeros(((mesh_vertices.shape[0], 256)))), axis=1)
     # load_images
-    for image_name in range(0, 500, 20):
+    image_path = os.path.join(ROOT_DIR, 'data', 'rawdata', scene_id, 'color')
+    for image_name in os.listdir(image_path):
+        image_name = image_name.replace(".jpg", "", 1)
         data_path = os.path.join(ROOT_DIR, 'data', 'rawdata', scene_id)
-        projected_points, unvalid_vertices = project_one_image(data_path, str(image_name), mesh_vertices)
-        mesh_vertices = np.concatenate((projected_points,unvalid_vertices),axis=0)
+        mesh_vertices_projected = project_one_image(data_path, image_name, mesh_vertices)
+        # mesh_vertices = np.concatenate((projected_points,unvalid_vertices),axis=0)
+        mesh_vertices = mesh_vertices_projected
+        check = mesh_vertices[:, 4]
+        check = check != 0.0
+        check = mesh_vertices[check]
 
-    check = mesh_vertices[:,4]
-    check = check!=0.0
-    check = mesh_vertices[check]
 
+    # Load alignments
+    lines = open(ROOT_DIR + '/data/scenes/'+scene_id+'/'+scene_id+ '.txt').readlines()
+    for line in lines:
+        if 'axisAlignment' in line:
+            axis_align_matrix = [float(x) \
+                                 for x in line.rstrip().strip('axisAlignment = ').split(' ')]
+            break
+    axis_align_matrix = np.array(axis_align_matrix).reshape((4, 4))
     mesh_vertices = np.delete(mesh_vertices, 3, 1)
-
+    pts = np.ones((mesh_vertices.shape[0], 4))
+    pts[:,0:3] = mesh_vertices[:,0:3]
+    pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
+    mesh_vertices[:,0:3] = pts[:,0:3]
+    mesh_vertices = mesh_vertices.astype('float32')
     return mesh_vertices
 
 
@@ -271,9 +276,9 @@ if __name__ == '__main__':
         intrinsic = intrinsic.cuda()
         projection = ProjectionHelper(intrinsic, opt.depth_min, opt.depth_max, proj_image_dims)
         vertices = scannet_projection(intrinsic, projection, scene_id)
-        save_path = ROOT_DIR +'/data/output/' +scene_id+'/'
+        save_path = ROOT_DIR +'/data/output/'
 
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-        np.save(save_path+scene_id + ".npy", vertices)
+        np.save(save_path+scene_id + "_features.npy", vertices)
     print("finished")

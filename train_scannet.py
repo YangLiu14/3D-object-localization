@@ -19,7 +19,7 @@ from scannet_dataset import ScannetDataset
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 
-def get_features_for_projection(model, imagePath):
+def get_features_for_projection(model, imagePath, device):
     image_mean = [0.485, 0.456, 0.406]
     image_std = [0.229, 0.224, 0.225]
     # these transform parameters are from source code of Mask R CNN
@@ -31,26 +31,25 @@ def get_features_for_projection(model, imagePath):
     images = [image_tensor]
     original_image_sizes = [img.shape[-2:] for img in images]
     images, _ = transform(images)
-    features = model.backbone(images.tensors)
+    features = model.backbone(images.tensors.to(device))
     features_to_be_projected = features['pool']
     return features_to_be_projected
 
 def get_model_instance_segmentation(num_classes):
     # load an instance segmentation model pre-trained pre-trained on COCO
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
-    # model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
+    # model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
     # get number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    # in_features = model.roi_heads.box_predictor.cls_score.in_features
     # replace the pre-trained head with a new one
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    # model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
 
     # now get the number of input features for the mask classifier
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer = 256
+    # in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    # hidden_layer = 256
     # and replace the mask predictor with a new one
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask,
-                                                       hidden_layer,
-                                                       num_classes)
+    # model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask, hidden_layer, num_classes)
+
     return model
 
 
@@ -134,6 +133,10 @@ def main(args):
         # evaluate on the test dataset
 #        evaluate(model, data_loader_test, device=device)
 
+    test = get_features_for_projection(model,
+                                       "/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/maskrcnn_training/train/raw_rgb/scene0001_00_60.jpg",
+                                       device)
+
     print("That's it!")
 
 
@@ -142,7 +145,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__)
 
-    parser.add_argument('--data-path', default=os.path.join(ROOT_DIR, 'data/maskrcnn_training'), help='dataset')
+    parser.add_argument('--data-path', default=os.path.join(BASE_DIR, 'data/maskrcnn_training'), help='dataset')
     parser.add_argument('--model', default='maskrcnn_resnet50_fpn', help='model')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('-b', '--batch-size', default=2, type=int,
@@ -163,7 +166,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr-steps', default=[8, 11], nargs='+', type=int, help='decrease lr every step-size epochs')
     parser.add_argument('--lr-gamma', default=0.1, type=float, help='decrease lr by a factor of lr-gamma')
     parser.add_argument('--print-freq', default=20, type=int, help='print frequency')
-    parser.add_argument('--output-dir', default=os.path.join(ROOT_DIR, "trained_model"), help='path where to save')
+    parser.add_argument('--output-dir', default=os.path.join(BASE_DIR, "trained_model"), help='path where to save')
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--aspect-ratio-group-factor', default=0, type=int)
     parser.add_argument(
