@@ -73,6 +73,10 @@ def main(args):
     dataset_valid = ScannetDataset(args.data_path, get_transform(train=False), data_split='valid')
     # dataset_test = ScannetDataset(args.data_path, get_transform(train=False), data_split='test')
 
+    # Choose subset of all validation images
+    indices = torch.randperm(len(dataset)).tolist()
+    dataset_valid = torch.utils.data.Subset(dataset_valid, indices[:-100])
+
     # # split the dataset in train and test set
     # indices = torch.randperm(len(dataset)).tolist()
     # dataset = torch.utils.data.Subset(dataset, indices[:-50])
@@ -80,7 +84,7 @@ def main(args):
 
     # define training and validation data loaders
     data_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=3, shuffle=True, num_workers=4,
+        dataset, batch_size=2, shuffle=True, num_workers=4,
         collate_fn=utils.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
@@ -97,8 +101,9 @@ def main(args):
     params = [p for p in model.parameters() if p.requires_grad]
     # optimizer = torch.optim.SGD(params, lr=0.001,
     #                             momentum=0.9, weight_decay=0.0005)
-    optimizer = torch.optim.SGD(params, lr=args.lr,
-                                momentum=args.momentum, weight_decay=args.weight_decay)
+    # optimizer = torch.optim.SGD(params, lr=args.lr,
+    #                             momentum=args.momentum, weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(params, lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
     # and a learning rate scheduler
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_gamma)
@@ -116,9 +121,9 @@ def main(args):
     writer = SummaryWriter(log_dir=BASE_DIR + '/train_log')
     for epoch in range(args.epochs):
         # train for one epoch, printing every 10 iterations
-        train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=10, log_writer=writer)
+        train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=1000, log_writer=writer)
         # update the learning rate
-        lr_scheduler.step()
+        # lr_scheduler.step()
         # save model
         if args.output_dir:
             if not os.path.exists(args.output_dir):
@@ -131,11 +136,11 @@ def main(args):
                 os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
 
         # evaluate on the test dataset
-#        evaluate(model, data_loader_test, device=device)
+        evaluate(epoch, model, data_loader_test, device=device, log_writer=writer)
 
-    test = get_features_for_projection(model,
-                                       "/home/haonan/PycharmProjects/mask-rcnn-for-indoor-objects/data/maskrcnn_training/train/raw_rgb/scene0001_00_60.jpg",
-                                       device)
+    # test = get_features_for_projection(model, ROOT_DIR +
+    #                                    "/data/maskrcnn_training/train/raw_rgb/scene0001_00_60.jpg",
+    #                                    device)
 
     print("That's it!")
 
@@ -150,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('-b', '--batch-size', default=2, type=int,
                         help='images per gpu, the total batch size is $NGPU x batch_size')
-    parser.add_argument('--epochs', default=13, type=int, metavar='N',
+    parser.add_argument('--epochs', default=50, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
@@ -163,8 +168,8 @@ if __name__ == "__main__":
                         metavar='W', help='weight decay (default: 1e-4)',
                         dest='weight_decay')
     parser.add_argument('--lr-step-size', default=8, type=int, help='decrease lr every step-size epochs')
-    parser.add_argument('--lr-steps', default=[8, 11], nargs='+', type=int, help='decrease lr every step-size epochs')
-    parser.add_argument('--lr-gamma', default=0.1, type=float, help='decrease lr by a factor of lr-gamma')
+    parser.add_argument('--lr-steps', default=[2, 3], nargs='+', type=int, help='decrease lr every step-size epochs')
+    parser.add_argument('--lr-gamma', default=0.96, type=float, help='decrease lr by a factor of lr-gamma')
     parser.add_argument('--print-freq', default=20, type=int, help='print frequency')
     parser.add_argument('--output-dir', default=os.path.join(BASE_DIR, "trained_model"), help='path where to save')
     parser.add_argument('--resume', default='', help='resume from checkpoint')
