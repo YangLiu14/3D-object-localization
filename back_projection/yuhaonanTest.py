@@ -190,7 +190,7 @@ def project_one_image(data_path, image_name, mesh_vertices):
 
     p = np.concatenate((p[:], np.zeros(((p.shape[0], 256)))), axis=1)
 
-    for i1 in tqdm(range(17)):
+    for i1 in range(17):
         for i2 in range(13):
             x = pi[:, 0]
             x_filter = x == i1
@@ -210,7 +210,7 @@ def project_one_image(data_path, image_name, mesh_vertices):
                 N_points_to_project = p_temp.shape[0]
                 tiled_features = np.tile(features, (N_points_to_project, 1))
                 featured_point = np.concatenate((p[filterxyd,0:4], tiled_features), axis=1)
-                mesh_vertices[projected_indices] = featured_point
+                mesh_vertices[projected_indices, 4:] = featured_point[:, 4:]
 
     return mesh_vertices
 
@@ -224,15 +224,15 @@ def scannet_projection(intrinsic, projection, scene_id):
     mesh_vertices = np.concatenate((mesh_vertices[:], np.zeros(((mesh_vertices.shape[0], 256)))), axis=1)
     # load_images
     image_path = os.path.join(ROOT_DIR, 'data', 'rawdata', scene_id, 'color')
-    for image_name in os.listdir(image_path):
+    for image_name in tqdm(os.listdir(image_path)):
         image_name = image_name.replace(".jpg", "", 1)
         data_path = os.path.join(ROOT_DIR, 'data', 'rawdata', scene_id)
         mesh_vertices_projected = project_one_image(data_path, image_name, mesh_vertices)
         # mesh_vertices = np.concatenate((projected_points,unvalid_vertices),axis=0)
         mesh_vertices = mesh_vertices_projected
-        check = mesh_vertices[:, 4]
-        check = check != 0.0
-        check = mesh_vertices[check]
+        # check = mesh_vertices[:, 4]
+        # check = check != 0.0
+        # check = mesh_vertices[check]
 
 
     # Load alignments
@@ -243,11 +243,12 @@ def scannet_projection(intrinsic, projection, scene_id):
                                  for x in line.rstrip().strip('axisAlignment = ').split(' ')]
             break
     axis_align_matrix = np.array(axis_align_matrix).reshape((4, 4))
+    # delete all 1's column
     mesh_vertices = np.delete(mesh_vertices, 3, 1)
     pts = np.ones((mesh_vertices.shape[0], 4))
-    pts[:,0:3] = mesh_vertices[:,0:3]
+    pts[:, 0:3] = mesh_vertices[:, 0:3]
     pts = np.dot(pts, axis_align_matrix.transpose()) # Nx4
-    mesh_vertices[:,0:3] = pts[:,0:3]
+    mesh_vertices[:, 0:3] = pts[:, 0:3]
     mesh_vertices = mesh_vertices.astype('float32')
     return mesh_vertices
 
@@ -276,8 +277,7 @@ if __name__ == '__main__':
         intrinsic = intrinsic.cuda()
         projection = ProjectionHelper(intrinsic, opt.depth_min, opt.depth_max, proj_image_dims)
         vertices = scannet_projection(intrinsic, projection, scene_id)
-        save_path = ROOT_DIR +'/data/output/'
-
+        save_path = "/home/extra/extra/outputs/"
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         np.save(save_path+scene_id + "_features.npy", vertices)
