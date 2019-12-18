@@ -72,7 +72,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(opt.gpu)
 
 # create camera intrinsics
 input_image_dims = [320, 240]
-proj_image_dims = [320, 240]
+proj_image_dims = [68, 50]
 # TODO: load intrinsic from txt
 intrinsic = util.make_intrinsic(opt.fx, opt.fy, opt.mx, opt.my)
 intrinsic = util.adjust_intrinsic(intrinsic, [opt.intrinsic_image_width, opt.intrinsic_image_height], proj_image_dims)
@@ -181,15 +181,15 @@ def scannet_projection():
     pi = np.rint(p)
 
     x = pi[:, 0]
-    x_filter = (x >= 0) & (x < 320)
+    x_filter = (x >= 0) & (x < proj_image_dims[0])
     y = pi[:, 1]
-    y_filter = (y >= 0) & (y < 240)
+    y_filter = (y >= 0) & (y < proj_image_dims[1])
     filterxy = x_filter & y_filter
 
     pi = pi[filterxy]
     p = p[filterxy]
 
-    reconstructed_depth_map = np.zeros((240, 320))
+    reconstructed_depth_map = np.zeros((proj_image_dims[1], proj_image_dims[0]))
 
     # for i1 in range(320):
     #     for i2 in range(240):
@@ -215,7 +215,6 @@ def scannet_projection():
     p_combined = np.concatenate((pi[:, 0:2], p[:, 2:3]), axis=1)
     # find correspondence in a 320 x 240 image, and fill in the depth value:
     # reconstructed_depth_map = np.zeros((500, 500))
-    reconstructed_depth_map = np.zeros((240, 320))
     # TODO: compare with depth map
     for p in p_combined:
         reconstructed_depth_map[int(p[1]), int(p[0])] = p[2]
@@ -231,8 +230,8 @@ def scannet_projection():
 
     # TODO: convert this to matrix multiplication
     print("back-projection, depth-map -> 3d points")
-    for i1 in tqdm(range(320)):
-        for i2 in range(240):
+    for i1 in tqdm(range(proj_image_dims[0])):
+        for i2 in range(proj_image_dims[1]):
             pcamera = projection.depth_to_skeleton(i1, i2, depth_map_to_compare[i2, i1]).unsqueeze(1).cpu().numpy()
             pcamera = np.append(pcamera, np.ones((1, 1)), axis=0)
             camera2world = camera_poses[0].cpu().numpy()
