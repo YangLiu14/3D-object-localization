@@ -4,13 +4,11 @@ import torch
 from torch.autograd import Function
 
 class ProjectionHelper():
-    def __init__(self, intrinsic, depth_min, depth_max, image_dims, volume_dims, voxel_size):
+    def __init__(self, intrinsic, depth_min, depth_max, image_dims):
         self.intrinsic = intrinsic
         self.depth_min = depth_min
         self.depth_max = depth_max
         self.image_dims = image_dims
-        self.volume_dims = volume_dims
-        self.voxel_size = voxel_size
 
 
     def depth_to_skeleton(self, ux, uy, depth):
