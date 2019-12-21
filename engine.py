@@ -21,7 +21,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq, lo
     header = 'Epoch: [{}]'.format(epoch)
 
     # lr_scheduler = None
-    milestones = [len(data_loader)//3, 2*len(data_loader)//3]
+    milestones = [len(data_loader)//2]
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.8)
     # if epoch == 0:
     #     warmup_factor = 1. / 1000
@@ -72,14 +72,14 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq, lo
         # ================================================================== #
         #                        Tensorboard Logging                         #
         # ================================================================== #
-        if count % print_freq == 0:
+        if count % 100 == 0:
             n_iter = count + epoch * len(data_loader) / len(images)
-            log_writer.add_scalar('Loss/total', loss_value, n_iter)
-            log_writer.add_scalar('Loss/class', loss_dict['loss_classifier'], n_iter)
-            log_writer.add_scalar('Loss/bbox', loss_dict['loss_box_reg'], n_iter)
-            log_writer.add_scalar('Loss/mask', loss_dict['loss_mask'], n_iter)
-            log_writer.add_scalar('Loss/objectness', loss_dict['loss_objectness'], n_iter)
-            log_writer.add_scalar('Loss/rpn_box', loss_dict['loss_rpn_box_reg'], n_iter)
+            log_writer.add_scalar('Loss/total', loss_value, n_iter/100)
+            log_writer.add_scalar('Loss/class', loss_dict['loss_classifier'], n_iter/100)
+            log_writer.add_scalar('Loss/bbox', loss_dict['loss_box_reg'], n_iter/100)
+            log_writer.add_scalar('Loss/mask', loss_dict['loss_mask'], n_iter/100)
+            log_writer.add_scalar('Loss/objectness', loss_dict['loss_objectness'], n_iter/100)
+            log_writer.add_scalar('Loss/rpn_box', loss_dict['loss_rpn_box_reg'], n_iter/100)
 
 def _get_iou_types(model):
     model_without_ddp = model
