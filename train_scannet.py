@@ -74,7 +74,7 @@ def main(args):
     # dataset_test = ScannetDataset(args.data_path, get_transform(train=False), data_split='test')
 
     # Choose subset of all validation images
-    indices = torch.randperm(len(dataset)).tolist()
+    indices = torch.randperm(len(dataset_valid)).tolist()
     dataset_valid = torch.utils.data.Subset(dataset_valid, indices[:-100])
 
     # # split the dataset in train and test set
