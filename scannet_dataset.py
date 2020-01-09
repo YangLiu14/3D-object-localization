@@ -60,6 +60,8 @@ class ScannetDataset(Dataset):
         # load images and masks
         img_path = os.path.join(self.root, self.data_split, "raw_rgb", self.imgs[idx])
         mask_path = os.path.join(self.root, self.data_split, "label_mask", self.masks[idx])
+        bbox_path = os.path.join(self.root, self.data_split, "bbox", self.bboxs[idx])
+
         img = Image.open(img_path).convert("RGB")
         img = np.asarray(img).astype('float32') / 255.0  # normalize every pixel to 0~1
         mask = Image.open(mask_path)
@@ -76,7 +78,6 @@ class ScannetDataset(Dataset):
         # get bounding box coordinates for each mask
         # num_objs = len(obj_ids)
         boxes = []
-        bbox_path = os.path.join(self.root, self.data_split, "bbox", self.bboxs[idx])
         bbox_dict_list = pickle.load(open(bbox_path, "rb"))
 
         obj_ids = []

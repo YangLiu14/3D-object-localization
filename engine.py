@@ -20,12 +20,14 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq, lo
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
 
-    lr_scheduler = None
-    if epoch == 0:
-        warmup_factor = 1. / 1000
-        warmup_iters = min(1000, len(data_loader) - 1)
-
-        lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
+    # lr_scheduler = None
+    milestones = [len(data_loader)//2]
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.8)
+    # if epoch == 0:
+    #     warmup_factor = 1. / 1000
+    #     warmup_iters = min(1000, len(data_loader) - 1)
+    #
+    #     lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
 
     count = 0
     for images, targets in metric_logger.log_every(data_loader, print_freq, header):
@@ -70,14 +72,14 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq, lo
         # ================================================================== #
         #                        Tensorboard Logging                         #
         # ================================================================== #
-        if count % print_freq == 0:
+        if count % 100 == 0:
             n_iter = count + epoch * len(data_loader) / len(images)
-            log_writer.add_scalar('Loss/total', loss_value, n_iter)
-            log_writer.add_scalar('Loss/class', loss_dict['loss_classifier'], n_iter)
-            log_writer.add_scalar('Loss/bbox', loss_dict['loss_box_reg'], n_iter)
-            log_writer.add_scalar('Loss/mask', loss_dict['loss_mask'], n_iter)
-            log_writer.add_scalar('Loss/objectness', loss_dict['loss_objectness'], n_iter)
-            log_writer.add_scalar('Loss/rpn_box', loss_dict['loss_rpn_box_reg'], n_iter)
+            log_writer.add_scalar('Loss/total', loss_value, n_iter/100)
+            log_writer.add_scalar('Loss/class', loss_dict['loss_classifier'], n_iter/100)
+            log_writer.add_scalar('Loss/bbox', loss_dict['loss_box_reg'], n_iter/100)
+            log_writer.add_scalar('Loss/mask', loss_dict['loss_mask'], n_iter/100)
+            log_writer.add_scalar('Loss/objectness', loss_dict['loss_objectness'], n_iter/100)
+            log_writer.add_scalar('Loss/rpn_box', loss_dict['loss_rpn_box_reg'], n_iter/100)
 
 def _get_iou_types(model):
     model_without_ddp = model
@@ -92,7 +94,7 @@ def _get_iou_types(model):
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, device):
+def evaluate(epoch, model, data_loader, device, log_writer):
     n_threads = torch.get_num_threads()
     # FIXME remove this and make paste_masks_in_image run on the GPU
     torch.set_num_threads(1)
@@ -129,6 +131,14 @@ def evaluate(model, data_loader, device):
 
     # accumulate predictions from all images
     coco_evaluator.accumulate()
-    coco_evaluator.summarize()
+    eval_result = coco_evaluator.summarize()
     torch.set_num_threads(n_threads)
+    # ================================================================== #
+    #                        Tensorboard Logging                         #
+    # ================================================================== #
+    log_writer.add_scalar('bbox/AP|IoU=0.5:0.95', eval_result['bbox'][0], epoch)
+    log_writer.add_scalar('bbox/AP|IoU=0.5', eval_result['bbox'][1], epoch)
+    log_writer.add_scalar('segm/AP|IoU=0.5:0.95', eval_result['segm'][0], epoch)
+    log_writer.add_scalar('segm/AP|IoU=0.5', eval_result['segm'][1], epoch)
+
     return coco_evaluator
