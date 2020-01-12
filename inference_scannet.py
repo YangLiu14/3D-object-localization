@@ -20,26 +20,26 @@ SCANNET_INSTANCE_CATEGORY_NAMES = [
     # 7  ,        # 8     ,  # 9             . # 10  , # 11     , # 12
     'bookshelf', 'picture', 'kitchen counter', 'desk', 'curtain', 'N/A',
     # 13            ,  # 14   , # 15  , # 16     , # 17
-    'shower curtain', 'toilet', 'sink', 'bathtub', 'mirror'
+    'shower curtain', 'toilet', 'sink', 'bathtub', 'others'
 ]
 
 def get_model_instance_segmentation(num_classes):
     # load an instance segmentation model pre-trained pre-trained on COCO
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
-    # model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
+    # model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(num_classes=num_classes)
 
-    # get number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    # replace the pre-trained head with a new one
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-
-    # now get the number of input features for the mask classifier
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer = 256
-    # and replace the mask predictor with a new one
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask,
-                                                       hidden_layer,
-                                                       num_classes)
+    # # get number of input features for the classifier
+    # in_features = model.roi_heads.box_predictor.cls_score.in_features
+    # # replace the pre-trained head with a new one
+    # model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    #
+    # # now get the number of input features for the mask classifier
+    # in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    # hidden_layer = 256
+    # # and replace the mask predictor with a new one
+    # model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask,
+    #                                                    hidden_layer,
+    #                                                    num_classes)
     return model
 
 def get_prediction(img_path, threshold):
@@ -88,12 +88,12 @@ if __name__ == "__main__":
     # model = torchvision.models.detection.maskrcnn_resnet50_fpn()
     # model.load_state_dict(torch.load(os.path.join(ROOT_DIR, 'trained_model', 'model_12.pth')))
     model = get_model_instance_segmentation(num_classes=18)
-    checkpoint = torch.load(os.path.join(ROOT_DIR, 'trained_model', 'model_12.pth'), map_location='cpu')
+    checkpoint = torch.load(os.path.join(BASE_DIR, 'trained_model', 'model_Dec20.pth'), map_location='cpu')
     model.load_state_dict(checkpoint['model'])
     # optimizer.load_state_dict(checkpoint['optimizer'])
     # lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
     model.eval()
 
-    img_path = os.path.join(ROOT_DIR, 'data/maskrcnn_training/raw_rgb/scene0000_01_3720.jpg')
+    img_path = os.path.join('/home/kloping/Documents/TUM/3D_object_localization/data/maskrcnn_training/valid/raw_rgb/scene0644_00_1280.jpg')
     instance_segmentation_api(img_path)
 
