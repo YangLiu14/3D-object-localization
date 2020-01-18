@@ -85,9 +85,14 @@ class ScannetDataset(Dataset):
         for bbox_dict in bbox_dict_list:
             # Check: valid bounding-boxes should not have `xmin==xmax or ymin==ymax`
             bbox = bbox_dict['bbox']
+            # check bbox area, if too small, ignore
+            x1, y1, x2, y2 = bbox
+            bbox_area = (x2 - x1) * (y2 - y1)
+            if bbox_area < 25:
+                continue
             if not (bbox[0] == bbox[2] or bbox[1] == bbox[3]):
                 boxes.append(bbox_dict['bbox'])
-                sem_labels.append(bbox_dict['sem_label'])
+                sem_labels.append(bbox_dict['sem_label'] + 1)  # add 1 to all sem_labels so that we have index 0 for background
                 obj_ids.append(bbox_dict['object_id'] + 1)
 
             object_dict[bbox_dict['sem_label']] = bbox_dict['object_name']
@@ -144,7 +149,9 @@ if __name__ == "__main__":
     print("BASE_DIR: {}".format(BASE_DIR))
     print("ROOT_DIRL {}".format(ROOT_DIR))
 
-    data_path = os.path.join(ROOT_DIR, 'data/maskrcnn_training')
+    data_root = "/home/kloping/Documents/TUM/3D_object_localization/"
+
+    data_path = os.path.join(data_root, 'data/maskrcnn_training')
     print("data_path: {}".format(data_path))
 
     # check how many classes are there
@@ -152,7 +159,7 @@ if __name__ == "__main__":
     classes = list()
     test_dataset = ScannetDataset(data_path, data_split='train')
     # for i in range(test_dataset.__len__()):
-    for i in range(1):
+    for i in [3, 400, 1123, 4978, 7960]:
         img, target = test_dataset.__getitem__(i)
         labels = target['labels'].numpy()
         masks = target['masks'].numpy()
